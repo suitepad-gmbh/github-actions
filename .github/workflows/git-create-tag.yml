@@ -1,0 +1,23 @@
+name: Create git tag
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+      main-branch:
+        required: true
+        type: string
+        default: main
+      
+
+jobs:
+  git_create_tag:
+    name: Create git tag
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
