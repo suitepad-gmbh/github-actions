@@ -23,7 +23,7 @@ on:
       services:
         type: string
         required: false
-        description: 'Json list of services to be deployed. Example: { "include": [{"SERVICE": "rattle"}] }'
+        description: 'JSON list of services to be deployed. Example: { "include": [{"SERVICE": "rattle"}, {"SERVICE": "rattle-sidekiq"}] }'
       cluster:
         type: string
         required: true
@@ -32,12 +32,25 @@ on:
         type: string
         required: true
         default: staging
-        description: The stach environment of the ECS service.
+        description: The stack environment of the ECS service.
       aws-region:
         type: string
         required: false
         default: eu-central-1
-    
+      preview-task-definition:
+        type: string
+        required: false
+        default: "false"
+      skip-migration:
+        type: string
+        required: false
+        default: "false"
+        description: Set true to skip migration run with init task.
+      init-task-command:
+        type: string
+        required: false
+        description: 'Init task command. Example: "rails db:migrate"'
+
     secrets:
       aws-access-key-id:
         required: true
@@ -64,7 +77,7 @@ jobs:
       deployment_id: ${{ steps.create-deployment.outputs.deployment_id }}
       target_url: ${{ steps.export-status-url.outputs.url }}
     steps:
-      - name: Export service status url
+      - name: Export service status URL
         id: export-status-url
         env:
           DOMAIN: ${{ inputs.environment == 'production' && 'suitepad.systems' || 'suitepad.engineering' }}
@@ -80,17 +93,75 @@ jobs:
           environment: ${{ inputs.environment }}
           target_url: ${{ steps.export-status-url.outputs.url }}
           description: "[${{ inputs.service-name }}-${{ inputs.environment }}]"
-          initial_status: in_progress 
+          initial_status: in_progress
 
-  deploy-task-definition:
-    name: Render and deploy task definition
+  run-init-task:
+    name: Run migrations and deploy
     runs-on: ubuntu-latest
     needs: [create-deployment]
-    
+    steps:
+      - name: Export short image tag to outputs
+        id: shorten-image-tag
+        run: |
+          image_tag=${{ inputs.image-tag }}
+          echo "::set-output name=tag::${image_tag:0:7}"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          role-to-assume: arn:aws:iam::060918773887:role/ecs-deploy-staging
+          role-skip-session-tagging: true
+          role-duration-seconds: 3600
+          aws-access-key-id: ${{ secrets.aws-access-key-id }}
+          aws-secret-access-key: ${{ secrets.aws-secret-access-key }}
+          aws-region: ${{ inputs.aws-region }}
+
+      - name: Fetch Task Definition and Network configs
+        id: fetch-task-definition
+        env:
+          TASK_DEFINITION_FILE: ${{ inputs.environment == 'production' && secrets.production-ecs-template-bucket || secrets.staging-ecs-template-bucket }}
+        run: |
+          aws s3 cp ${{ env.TASK_DEFINITION_FILE }}/${{ inputs.cluster }}-${{ inputs.service-name }}-${{ inputs.environment }} /tmp/task-definition-template.json
+          aws s3 cp ${{ env.TASK_DEFINITION_FILE }}/${{ inputs.cluster }}-${{ inputs.service-name }}-${{ inputs.environment }}-network-config /tmp/network-config.json
+          NETWORK_CONFIG=$(cat /tmp/network-config.json)
+          echo "::set-output name=network-config::${NETWORK_CONFIG//'%'/'%25'}"
+
+      - name: Render ECS task definition
+        id: render-app-container
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: /tmp/task-definition-template.json
+          container-name: ${{ inputs.container-name }}
+          image: ${{ inputs.image-uri }}:${{ steps.shorten-image-tag.outputs.tag }}
+
+      - name: Preview ECS task definition
+        if: ${{ inputs.preview-task-definition == 'true' }}
+        run: |
+          cat ${{ steps.render-app-container.outputs.task-definition }}
+
+      - name: Deploy to Amazon ECS service
+        uses: chiragrajk/amazon-ecs-deploy-task-definition@feature/enable-init-tasks
+        with:
+          task-definition: ${{ steps.render-app-container.outputs.task-definition }}
+          service: ${{ inputs.service-name }}-${{ inputs.environment }}
+          cluster: ${{ inputs.cluster }}
+          wait-for-service-stability: true
+          force-new-deployment: true
+          init-task-command: ${{ inputs.skip-migration != 'true' && inputs.init-task-command || '' }}
+          init-task-network-configuration: ${{ steps.fetch-task-definition.outputs.network-config }}
+          started-by: GHA-${{ github.actor }}
+
+  deploy-task-definition:
+    name: Deploy
+    runs-on: ubuntu-latest
+    needs: [run-init-task]
+
     concurrency: deploy-${{ matrix.SERVICE }}
     strategy:
       fail-fast: true
       matrix: ${{ fromJson(inputs.services) }}
+
+    if: ${{ fromJson(inputs.services).include[0] }}
 
     steps:
       - name: Export short image tag to outputs
@@ -124,48 +195,52 @@ jobs:
           image: ${{ inputs.image-uri }}:${{ steps.shorten-image-tag.outputs.tag }}
 
       - name: Preview ECS task definition
+        if: ${{ inputs.preview-task-definition == 'true' }}
         run: |
           cat ${{ steps.render-app-container.outputs.task-definition }}
 
       - name: Deploy to Amazon ECS service
-        uses: aws-actions/amazon-ecs-deploy-task-definition@v1
+        uses: chiragrajk/amazon-ecs-deploy-task-definition@feature/enable-init-tasks
         with:
           task-definition: ${{ steps.render-app-container.outputs.task-definition }}
           service: ${{ matrix.SERVICE }}-${{ inputs.environment }}
           cluster: ${{ inputs.cluster }}
           wait-for-service-stability: true
+          force-new-deployment: true
+          started-by: GHA-${{ github.actor }}
 
   update-deployment-status:
     runs-on: ubuntu-latest
     name: Update deployment status
-    # if: ${{ always() && (needs.deploy.result=='failure') }}
     if: ${{ always() }}
-    needs: [create-deployment, deploy-task-definition]
+    needs: [create-deployment, run-init-task, deploy-task-definition]
     steps:
       - name: Update deployment status (success)
         uses: chrnorm/deployment-status@master
+        env:
+          success: ${{ needs.deploy-task-definition.result == 'success' || needs.deploy-task-definition.result != 'skipped' || needs.run-init-task.result == 'success' || false }}
         with:
           token: "${{ github.token }}"
-          state: "${{ needs.deploy-task-definition.result }}"
+          state: ${{ env.success == 'true' && 'success' || 'failure' }}
           deployment_id: ${{ needs.create-deployment.outputs.deployment_id }}
 
   notify-deployment:
     runs-on: ubuntu-latest
     name: Notify deploy status on Slack
     if: ${{ always() }}
-    needs: [create-deployment, deploy-task-definition]
+    needs: [create-deployment, run-init-task, deploy-task-definition]
     steps:
       - name: Report Status
         uses: ravsamhq/notify-slack-action@v1
-        # if: always()
-        with:
-          status: ${{ needs.deploy-task-definition.result }}
-          token: ${{ github.token }}
-          notification_title: '[${{ inputs.environment }}] {workflow} has {status_message}'
-          message_format: '{emoji} *[${{ inputs.environment }}] {workflow}* {status_message} in <{repo_url}|{repo}>'
-          footer: 'Linked Repo <{repo_url}|{repo}> | <{run_url}|View Workflow Run> | <${{ needs.create-deployment.outputs.target_url }}|Check Service Status>'
-          notify_when: 'success,failure,warnings,skipped'
-          mention_groups: 'S022DRPB353'
-          mention_groups_when: 'failure,warnings,skipped'
         env:
+          success: ${{ needs.deploy-task-definition.result == 'success' || needs.deploy-task-definition.result != 'skipped' || (fromJson(inputs.services).include[0] == null &&  needs.run-init-task.result == 'success') || false }}
           SLACK_WEBHOOK_URL: ${{ inputs.environment == 'production' && secrets.production-slack-webhook || secrets.staging-slack-webhook }}
+        with:
+          status: ${{ env.success == 'true' && 'success' || 'failure' }}
+          token: ${{ github.token }}
+          notification_title: "[${{ inputs.environment }}] {workflow} has {status_message}"
+          message_format: "{emoji} *[${{ inputs.environment }}] {workflow}* {status_message} in <{repo_url}|{repo}>"
+          footer: "Linked Repo <{repo_url}|{repo}> | <{run_url}|View Workflow Run> | <${{ needs.create-deployment.outputs.target_url }}|Check Service Status>"
+          notify_when: "success,failure,warnings"
+          mention_groups: "S022DRPB353"
+          mention_groups_when: "failure,warnings"
