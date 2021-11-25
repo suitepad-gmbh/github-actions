@@ -147,7 +147,7 @@ jobs:
           cluster: ${{ inputs.cluster }}
           wait-for-service-stability: true
           force-new-deployment: true
-          init-task-command: ${{ inputs.skip-migration == 'true' && inputs.init-task-command || '' }}
+          init-task-command: ${{ inputs.skip-migration != 'true' && inputs.init-task-command || '' }}
           init-task-network-configuration: ${{ steps.fetch-task-definition.outputs.network-config }}
           started-by: GHA-${{ github.actor }}
 
