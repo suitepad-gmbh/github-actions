@@ -3,13 +3,17 @@ name: Deploy task definition to AWS ECS
 on:
   workflow_call:
     inputs:
+      aws-region:
+        type: string
+        required: false
+        default: eu-central-1
       image-uri:
         type: string
         required: true
         description: The URI of the container image to insert into the ECS task definition
       image-tag:
         type: string
-        required: true
+        required: false
         description: The container image tag to insert into the ECS task definition
       container-name:
         type: string
@@ -33,19 +37,15 @@ on:
         required: true
         default: staging
         description: The stack environment of the ECS service.
-      aws-region:
-        type: string
-        required: false
-        default: eu-central-1
       preview-task-definition:
         type: string
         required: false
         default: "false"
-      skip-migration:
+      skip-init-task:
         type: string
         required: false
         default: "false"
-        description: Set true to skip migration run with init task.
+        description: Set true to skip init task.
       init-task-command:
         type: string
         required: false
@@ -56,6 +56,10 @@ on:
         required: true
       aws-secret-access-key:
         required: true
+      staging-aws-deploy-role:
+        required: false
+      production-aws-deploy-role:
+        required: false
 
       staging-ecs-template-bucket:
         required: true
@@ -70,9 +74,76 @@ on:
         required: true
 
 jobs:
-  create-deployment:
+  docker-build-push:
+    name: Build docker image and push to ECR
     runs-on: ubuntu-latest
+    outputs:
+      image-tag: ${{ steps.export-sha.outputs.sha_short }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+        with:
+          ref: ${{ inputs.image-tag || github.sha }}
+
+      # Check if deployable to staging or prod?
+
+      - name: Export short sha to outputs
+        id: export-sha
+        run: |
+          echo "::set-output name=sha_short::$(git rev-parse --short HEAD)"
+
+      - name: Set up Docker Buildx
+        id: buildx
+        uses: docker/setup-buildx-action@master
+        with:
+          install: true
+
+      - name: Cache Docker layers
+        uses: actions/cache@v2
+        with:
+          path: /tmp/.buildx-cache
+          # Key is named differently to avoid collision
+          key: ${{ runner.os }}-multi-buildx-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-multi-buildx
+
+      - name: Build production image
+        uses: docker/build-push-action@v2
+        with:
+          context: .
+          builder: ${{ steps.buildx.outputs.name }}
+          load: true
+          push: false
+          tags: ${{ inputs.image-uri }}:${{ steps.export-sha.outputs.sha_short }}
+          cache-from: type=local,src=/tmp/.buildx-cache
+          # Note the mode=max here
+          # More: https://github.com/moby/buildkit#--export-cache-options
+          # And: https://github.com/docker/buildx#--cache-tonametypetypekeyvalue
+          cache-to: type=local,mode=max,dest=/tmp/.buildx-cache-new
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.aws-access-key-id }}
+          aws-secret-access-key: ${{ secrets.aws-secret-access-key }}
+          aws-region: ${{ inputs.aws-region }}
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Push docker image to ECR
+        run: |
+          docker push ${{ inputs.image-uri }}:${{ steps.export-sha.outputs.sha_short }}
+
+      - name: Move cache
+        run: |
+          rm -rf /tmp/.buildx-cache
+          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+  
+  create-deployment:
     name: Create Deployment
+    runs-on: ubuntu-latest
+    needs: [docker-build-push]
     outputs:
       deployment_id: ${{ steps.create-deployment.outputs.deployment_id }}
       target_url: ${{ steps.export-status-url.outputs.url }}
@@ -88,28 +159,22 @@ jobs:
         name: Create deployment
         id: create-deployment
         with:
-          ref: ${{ inputs.image-tag }}
+          ref: ${{ needs.docker-build-push.outputs.image-tag }}
           token: ${{ github.token }}
           environment: ${{ inputs.environment }}
           target_url: ${{ steps.export-status-url.outputs.url }}
           description: "[${{ inputs.service-name }}-${{ inputs.environment }}]"
           initial_status: in_progress
 
-  run-init-task:
-    name: Run migrations and deploy
+  deploy-task-definition:
+    name: Deploy main service and run init task
     runs-on: ubuntu-latest
-    needs: [create-deployment]
+    needs: [create-deployment, docker-build-push]
     steps:
-      - name: Export short image tag to outputs
-        id: shorten-image-tag
-        run: |
-          image_tag=${{ inputs.image-tag }}
-          echo "::set-output name=tag::${image_tag:0:7}"
-
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v1
         with:
-          role-to-assume: arn:aws:iam::060918773887:role/ecs-deploy-staging
+          role-to-assume: ${{ inputs.environment == 'production' && secrets.production-aws-deploy-role || secrets.staging-aws-deploy-role }}
           role-skip-session-tagging: true
           role-duration-seconds: 3600
           aws-access-key-id: ${{ secrets.aws-access-key-id }}
@@ -132,7 +197,7 @@ jobs:
         with:
           task-definition: /tmp/task-definition-template.json
           container-name: ${{ inputs.container-name }}
-          image: ${{ inputs.image-uri }}:${{ steps.shorten-image-tag.outputs.tag }}
+          image: ${{ inputs.image-uri }}:${{ needs.docker-build-push.outputs.image-tag }}
 
       - name: Preview ECS task definition
         if: ${{ inputs.preview-task-definition == 'true' }}
@@ -147,33 +212,25 @@ jobs:
           cluster: ${{ inputs.cluster }}
           wait-for-service-stability: true
           force-new-deployment: true
-          init-task-command: ${{ inputs.skip-migration != 'true' && inputs.init-task-command || '' }}
+          init-task-command: ${{ inputs.skip-init-task != 'true' && inputs.init-task-command || '' }}
           init-task-network-configuration: ${{ steps.fetch-task-definition.outputs.network-config }}
           started-by: GHA-${{ github.actor }}
 
-  deploy-task-definition:
-    name: Deploy
+  deploy-sidecars:
+    name: Deploy supporting services
     runs-on: ubuntu-latest
-    needs: [run-init-task]
+    needs: [docker-build-push, deploy-task-definition]
 
-    concurrency: deploy-${{ matrix.SERVICE }}
+    if: ${{ fromJson(inputs.services).include[0] }}
+    concurrency: deploy-sidecar-${{ matrix.SERVICE }}
     strategy:
       fail-fast: true
       matrix: ${{ fromJson(inputs.services) }}
-
-    if: ${{ fromJson(inputs.services).include[0] }}
-
     steps:
-      - name: Export short image tag to outputs
-        id: shorten-image-tag
-        run: |
-          image_tag=${{ inputs.image-tag }}
-          echo "::set-output name=tag::${image_tag:0:7}"
-
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v1
         with:
-          role-to-assume: arn:aws:iam::060918773887:role/ecs-deploy-staging
+          role-to-assume: ${{ inputs.environment == 'production' && secrets.production-aws-deploy-role || secrets.staging-aws-deploy-role }}
           role-skip-session-tagging: true
           role-duration-seconds: 3600
           aws-access-key-id: ${{ secrets.aws-access-key-id }}
@@ -192,7 +249,7 @@ jobs:
         with:
           task-definition: /tmp/task-definition-template.json
           container-name: ${{ inputs.container-name }}
-          image: ${{ inputs.image-uri }}:${{ steps.shorten-image-tag.outputs.tag }}
+          image: ${{ inputs.image-uri }}:${{ needs.docker-build-push.outputs.image-tag }}
 
       - name: Preview ECS task definition
         if: ${{ inputs.preview-task-definition == 'true' }}
@@ -213,27 +270,27 @@ jobs:
     runs-on: ubuntu-latest
     name: Update deployment status
     if: ${{ always() }}
-    needs: [create-deployment, run-init-task, deploy-task-definition]
+    needs: [create-deployment, deploy-task-definition, deploy-sidecars]
     steps:
-      - name: Update deployment status (success)
+      - name: Update deployment status
         uses: chrnorm/deployment-status@master
         env:
-          success: ${{ needs.deploy-task-definition.result == 'success' || needs.deploy-task-definition.result != 'skipped' || needs.run-init-task.result == 'success' || false }}
+          SUCCESS: ${{ needs.deploy-sidecars.result == 'success' || needs.deploy-sidecars.result != 'skipped' || needs.deploy-sidecars.result == 'success' || false }}
         with:
           token: "${{ github.token }}"
-          state: ${{ env.success == 'true' && 'success' || 'failure' }}
+          state: ${{ env.SUCCESS == 'true' && 'success' || 'failure' }}
           deployment_id: ${{ needs.create-deployment.outputs.deployment_id }}
 
-  notify-deployment:
-    runs-on: ubuntu-latest
+  notify-slack:
     name: Notify deploy status on Slack
+    runs-on: ubuntu-latest
     if: ${{ always() }}
-    needs: [create-deployment, run-init-task, deploy-task-definition]
+    needs: [create-deployment, deploy-task-definition, deploy-sidecars]
     steps:
       - name: Report Status
         uses: ravsamhq/notify-slack-action@v1
         env:
-          success: ${{ needs.deploy-task-definition.result == 'success' || needs.deploy-task-definition.result != 'skipped' || (fromJson(inputs.services).include[0] == null &&  needs.run-init-task.result == 'success') || false }}
+          success: ${{ needs.deploy-sidecars.result == 'success' || needs.deploy-sidecars.result != 'skipped' || (fromJson(inputs.services).include[0] == null &&  needs.deploy-task-definition.result == 'success') || false }}
           SLACK_WEBHOOK_URL: ${{ inputs.environment == 'production' && secrets.production-slack-webhook || secrets.staging-slack-webhook }}
         with:
           status: ${{ env.success == 'true' && 'success' || 'failure' }}
