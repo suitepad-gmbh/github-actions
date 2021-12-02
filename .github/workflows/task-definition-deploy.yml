@@ -28,6 +28,7 @@ on:
         type: string
         required: false
         description: 'JSON list of services to be deployed. Example: { "include": [{"SERVICE": "rattle"}, {"SERVICE": "rattle-sidekiq"}] }'
+        default: '{ "include": [] }'
       cluster:
         type: string
         required: true
@@ -139,7 +140,7 @@ jobs:
         run: |
           rm -rf /tmp/.buildx-cache
           mv /tmp/.buildx-cache-new /tmp/.buildx-cache
-  
+
   create-deployment:
     name: Create Deployment
     runs-on: ubuntu-latest
