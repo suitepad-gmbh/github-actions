@@ -276,7 +276,7 @@ jobs:
       - name: Update deployment status
         uses: chrnorm/deployment-status@master
         env:
-          SUCCESS: ${{ needs.deploy-sidecars.result == 'success' || needs.deploy-sidecars.result != 'skipped' || needs.deploy-sidecars.result == 'success' || false }}
+          SUCCESS: ${{ needs.deploy-sidecars.result == 'success' || needs.deploy-sidecars.result != 'skipped' || (fromJson(inputs.services).include[0] == null &&  needs.deploy-task-definition.result == 'success') || false }}
         with:
           token: "${{ github.token }}"
           state: ${{ env.SUCCESS == 'true' && 'success' || 'failure' }}
@@ -291,10 +291,10 @@ jobs:
       - name: Report Status
         uses: ravsamhq/notify-slack-action@v1
         env:
-          success: ${{ needs.deploy-sidecars.result == 'success' || needs.deploy-sidecars.result != 'skipped' || (fromJson(inputs.services).include[0] == null &&  needs.deploy-task-definition.result == 'success') || false }}
+          SUCCESS: ${{ needs.deploy-sidecars.result == 'success' || needs.deploy-sidecars.result != 'skipped' || (fromJson(inputs.services).include[0] == null &&  needs.deploy-task-definition.result == 'success') || false }}
           SLACK_WEBHOOK_URL: ${{ inputs.environment == 'production' && secrets.production-slack-webhook || secrets.staging-slack-webhook }}
         with:
-          status: ${{ env.success == 'true' && 'success' || 'failure' }}
+          status: ${{ env.SUCCESS == 'true' && 'success' || 'failure' }}
           token: ${{ github.token }}
           notification_title: "[${{ inputs.environment }}] {workflow} has {status_message}"
           message_format: "{emoji} *[${{ inputs.environment }}] {workflow}* {status_message} in <{repo_url}|{repo}>"
