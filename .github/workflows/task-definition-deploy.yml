@@ -58,9 +58,9 @@ on:
       aws-secret-access-key:
         required: true
       staging-aws-deploy-role:
-        required: false
+        required: true
       production-aws-deploy-role:
-        required: false
+        required: true
 
       staging-ecs-template-bucket:
         required: true
