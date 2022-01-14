@@ -154,7 +154,7 @@ jobs:
       - name: Export service status URL
         id: export-status-url
         env:
-          DOMAIN: ${{ inputs.environment == 'production' && 'suitepad.systems' || 'suitepad.engineering' }}
+          DOMAIN: ${{ inputs.environment == 'prod' && 'suitepad.systems' || 'suitepad.engineering' }}
         run: |
           echo "::set-output name=url::https://${{ inputs.service-name }}.${{ inputs.environment }}.${{ env.DOMAIN }}/status"
 
@@ -177,7 +177,7 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v1
         with:
-          role-to-assume: ${{ inputs.environment == 'production' && secrets.production-aws-deploy-role || secrets.staging-aws-deploy-role }}
+          role-to-assume: ${{ inputs.environment == 'prod' && secrets.production-aws-deploy-role || secrets.staging-aws-deploy-role }}
           role-skip-session-tagging: true
           role-duration-seconds: 3600
           aws-access-key-id: ${{ secrets.aws-access-key-id }}
@@ -187,7 +187,7 @@ jobs:
       - name: Fetch Task Definition and Network configs
         id: fetch-task-definition
         env:
-          TASK_DEFINITION_FILE: ${{ inputs.environment == 'production' && secrets.production-ecs-template-bucket || secrets.staging-ecs-template-bucket }}
+          TASK_DEFINITION_FILE: ${{ inputs.environment == 'prod' && secrets.production-ecs-template-bucket || secrets.staging-ecs-template-bucket }}
         run: |
           aws s3 cp ${{ env.TASK_DEFINITION_FILE }}/${{ inputs.cluster }}-${{ inputs.service-name }}-${{ inputs.environment }} /tmp/task-definition-template.json
           aws s3 cp ${{ env.TASK_DEFINITION_FILE }}/${{ inputs.cluster }}-${{ inputs.service-name }}-${{ inputs.environment }}-network-config /tmp/network-config.json
@@ -233,7 +233,7 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v1
         with:
-          role-to-assume: ${{ inputs.environment == 'production' && secrets.production-aws-deploy-role || secrets.staging-aws-deploy-role }}
+          role-to-assume: ${{ inputs.environment == 'prod' && secrets.production-aws-deploy-role || secrets.staging-aws-deploy-role }}
           role-skip-session-tagging: true
           role-duration-seconds: 3600
           aws-access-key-id: ${{ secrets.aws-access-key-id }}
@@ -242,7 +242,7 @@ jobs:
 
       - name: Fetch Task Definition template from S3
         env:
-          TASK_DEFINITION_FILE: ${{ inputs.environment == 'production' && secrets.production-ecs-template-bucket || secrets.staging-ecs-template-bucket }}
+          TASK_DEFINITION_FILE: ${{ inputs.environment == 'prod' && secrets.production-ecs-template-bucket || secrets.staging-ecs-template-bucket }}
         run: |
           aws s3 cp ${{ env.TASK_DEFINITION_FILE }}/${{ inputs.cluster }}-${{ matrix.SERVICE }}-${{ inputs.environment }} /tmp/task-definition-template.json
 
@@ -294,7 +294,7 @@ jobs:
         uses: ravsamhq/notify-slack-action@v1
         env:
           SUCCESS: ${{ needs.deploy-sidecars.result == 'success' || needs.deploy-sidecars.result != 'skipped' || (fromJson(inputs.services).include[0] == null &&  needs.deploy-task-definition.result == 'success') || false }}
-          SLACK_WEBHOOK_URL: ${{ inputs.environment == 'production' && secrets.production-slack-webhook || secrets.staging-slack-webhook }}
+          SLACK_WEBHOOK_URL: ${{ inputs.environment == 'prod' && secrets.production-slack-webhook || secrets.staging-slack-webhook }}
         with:
           status: ${{ env.SUCCESS == 'true' && 'success' || 'failure' }}
           token: ${{ github.token }}
