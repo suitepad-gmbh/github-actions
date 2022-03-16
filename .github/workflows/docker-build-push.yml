@@ -21,11 +21,13 @@ on:
         required: true
         type: string
         default: eu-central-1
-    
+
     secrets:
       aws-access-key-id:
         required: true
       aws-secret-access-key:
+        required: true
+      pat-github:
         required: true
 
 jobs:
@@ -35,6 +37,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v2
+        with:
+          token: ${{ secrets.pat-github }}
+          submodules: "true"
 
       - name: Cache dependencies
         uses: actions/cache@v2
@@ -89,11 +94,11 @@ jobs:
 
       - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v1
-      
+
       - name: Push docker image to ECR
         run: |
           docker push ${{ inputs.registry }}/${{ inputs.image }}:${{ steps.export-sha.outputs.sha_short }}
-      
+
       - name: Move cache
         run: |
           rm -rf /tmp/.buildx-cache

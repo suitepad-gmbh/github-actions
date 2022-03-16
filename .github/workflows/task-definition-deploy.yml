@@ -53,6 +53,8 @@ on:
         description: 'Init task command. Example: "rails db:migrate"'
 
     secrets:
+      pat-github:
+        required: true
       aws-access-key-id:
         required: true
       aws-secret-access-key:
@@ -85,6 +87,8 @@ jobs:
         uses: actions/checkout@v2
         with:
           ref: ${{ inputs.image-tag || github.sha }}
+          token: ${{ secrets.pat-github }}
+          submodules: "true"
 
       # Check if deployable to staging or prod?
 
