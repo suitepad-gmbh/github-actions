@@ -42,7 +42,7 @@ jobs:
           submodules: "true"
 
       - name: Cache dependencies
-        uses: actions/cache@v2
+        uses: actions/cache@v3
         if: ${{ inputs.cache-mix }}
         with:
           path: deps
@@ -61,7 +61,7 @@ jobs:
           install: true
 
       - name: Cache Docker layers
-        uses: actions/cache@v2
+        uses: actions/cache@v3
         with:
           path: /tmp/.buildx-cache
           # Key is named differently to avoid collision
