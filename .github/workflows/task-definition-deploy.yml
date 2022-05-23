@@ -280,7 +280,7 @@ jobs:
     needs: [create-deployment, deploy-task-definition, deploy-sidecars]
     steps:
       - name: Update deployment status
-        uses: chrnorm/deployment-status@v1.0.0
+        uses: chrnorm/deployment-status@v2.0.0
         env:
           SUCCESS: ${{ needs.deploy-sidecars.result == 'success' || needs.deploy-sidecars.result != 'skipped' || (fromJson(inputs.services).include[0] == null &&  needs.deploy-task-definition.result == 'success') || false }}
         with:
