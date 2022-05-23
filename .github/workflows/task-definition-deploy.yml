@@ -162,7 +162,7 @@ jobs:
         run: |
           echo "::set-output name=url::https://${{ inputs.service-name }}.${{ inputs.environment }}.${{ env.DOMAIN }}/status"
 
-      - uses: chrnorm/deployment-action@master
+      - uses: chrnorm/deployment-action@v1.2.0
         name: Create deployment
         id: create-deployment
         with:
@@ -280,7 +280,7 @@ jobs:
     needs: [create-deployment, deploy-task-definition, deploy-sidecars]
     steps:
       - name: Update deployment status
-        uses: chrnorm/deployment-status@master
+        uses: chrnorm/deployment-status@v1.0.0
         env:
           SUCCESS: ${{ needs.deploy-sidecars.result == 'success' || needs.deploy-sidecars.result != 'skipped' || (fromJson(inputs.services).include[0] == null &&  needs.deploy-task-definition.result == 'success') || false }}
         with:
