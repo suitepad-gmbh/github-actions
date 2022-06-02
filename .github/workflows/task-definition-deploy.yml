@@ -162,16 +162,16 @@ jobs:
         run: |
           echo "::set-output name=url::https://${{ inputs.service-name }}.${{ inputs.environment }}.${{ env.DOMAIN }}/status"
 
-      - uses: chrnorm/deployment-action@v1.2.0
+      - uses: chrnorm/deployment-action@v2
         name: Create deployment
         id: create-deployment
         with:
           ref: ${{ needs.docker-build-push.outputs.image-tag }}
           token: ${{ github.token }}
           environment: ${{ inputs.environment }}
-          target_url: ${{ steps.export-status-url.outputs.url }}
+          environment-url: ${{ steps.export-status-url.outputs.url }}
           description: "[${{ inputs.service-name }}-${{ inputs.environment }}]"
-          initial_status: in_progress
+          initial-status: in_progress
 
   deploy-task-definition:
     name: Deploy main service and run init task
@@ -280,13 +280,13 @@ jobs:
     needs: [create-deployment, deploy-task-definition, deploy-sidecars]
     steps:
       - name: Update deployment status
-        uses: chrnorm/deployment-status@v1.0.0
+        uses: chrnorm/deployment-status@v2
         env:
           SUCCESS: ${{ needs.deploy-sidecars.result == 'success' || needs.deploy-sidecars.result != 'skipped' || (fromJson(inputs.services).include[0] == null &&  needs.deploy-task-definition.result == 'success') || false }}
         with:
           token: "${{ github.token }}"
           state: ${{ env.SUCCESS == 'true' && 'success' || 'failure' }}
-          deployment_id: ${{ needs.create-deployment.outputs.deployment_id }}
+          deployment-id: ${{ needs.create-deployment.outputs.deployment_id }}
 
   notify-slack:
     name: Notify deploy status on Slack
