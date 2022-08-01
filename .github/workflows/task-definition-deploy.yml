@@ -95,8 +95,6 @@ jobs:
           token: ${{ secrets.pat-github }}
           submodules: "true"
 
-      # Check if deployable to staging or prod?
-
       - name: Export short sha to outputs
         id: export-sha
         run: |
@@ -173,6 +171,16 @@ jobs:
           rm -rf /tmp/.buildx-cache
           mv /tmp/.buildx-cache-new /tmp/.buildx-cache
 
+  # check-permission:
+  #   name: Check user permission
+  #   runs-on: ubuntu-latest
+  #   steps:
+
+
+  #     - run: echo "user-permission = ${{ steps.check-permission.outputs.user-permission }}"
+  #     - run: echo "require-result = ${{ steps.check-permission.outputs.require-result }}"
+  #     - run: echo "check-result = ${{ steps.check-permission.outputs.check-result }}"
+
   create-deployment:
     name: Create Deployment
     runs-on: ubuntu-latest
@@ -181,6 +189,12 @@ jobs:
       deployment_id: ${{ steps.create-deployment.outputs.deployment_id }}
       target_url: ${{ steps.export-status-url.outputs.url }}
     steps:
+      - uses: actions-cool/check-user-permission@v2
+        id: check-permission
+        with:
+          require: 'write'
+          check-contributor: true
+
       - name: Export service status URL
         id: export-status-url
         env:
@@ -198,6 +212,8 @@ jobs:
           environment-url: ${{ steps.export-status-url.outputs.url }}
           description: "[${{ inputs.service-name }}-${{ inputs.environment }}]"
           initial-status: in_progress
+
+      - run: exit 1
 
   deploy-task-definition:
     name: Deploy main service and run init task
