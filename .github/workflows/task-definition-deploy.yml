@@ -95,8 +95,6 @@ jobs:
           token: ${{ secrets.pat-github }}
           submodules: "true"
 
-      # Check if deployable to staging or prod?
-
       - name: Export short sha to outputs
         id: export-sha
         run: |
@@ -198,6 +196,28 @@ jobs:
           environment-url: ${{ steps.export-status-url.outputs.url }}
           description: "[${{ inputs.service-name }}-${{ inputs.environment }}]"
           initial-status: in_progress
+
+      - uses: actions-cool/check-user-permission@v2
+        name: Check user permission
+        id: check-permission
+        with:
+          require: 'write'
+          username: ${{ github.triggering_actor }}
+          check-contributor: true
+
+      - name: Check user permission
+        run: |
+          echo "user-permission = ${{ steps.check-permission.outputs.user-permission }}"
+          echo "require-result = ${{ steps.check-permission.outputs.require-result }}"
+          echo "check-result = ${{ steps.check-permission.outputs.check-result }}"
+
+          if [ '${{ steps.check-permission.outputs.require-result }}' == 'true' ]; then
+            echo "::notice title=User permitted.::User ${{ github.triggering_actor }} is permitted to deploy."
+            exit 0
+          else
+            echo "::error title=User not permitted.::User ${{ github.triggering_actor }} is not permitted to deploy. User should have admin or write permissions."
+            exit 1
+          fi
 
   deploy-task-definition:
     name: Deploy main service and run init task
