@@ -321,7 +321,7 @@ jobs:
     needs: [create-deployment, deploy-task-definition, deploy-sidecars]
     steps:
       - name: Report Status
-        uses: ravsamhq/notify-slack-action@v1
+        uses: ravsamhq/notify-slack-action@v2
         env:
           SUCCESS: ${{ needs.deploy-sidecars.result == 'success' || needs.deploy-sidecars.result != 'skipped' || (fromJson(inputs.services).include[0] == null &&  needs.deploy-task-definition.result == 'success') || false }}
           SLACK_WEBHOOK_URL: ${{ inputs.environment == 'prod' && secrets.production-slack-webhook || secrets.staging-slack-webhook }}
