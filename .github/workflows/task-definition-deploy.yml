@@ -244,6 +244,7 @@ jobs:
           service: ${{ inputs.service-name }}-${{ inputs.environment }}
           cluster: ${{ inputs.cluster }}
           wait-for-service-stability: true
+          wait-for-minutes: 10
           force-new-deployment: true
           init-task-command: ${{ inputs.skip-init-task != 'true' && inputs.init-task-command || '' }}
           init-task-network-configuration: ${{ steps.fetch-task-definition.outputs.network-config }}
@@ -296,6 +297,7 @@ jobs:
           service: ${{ matrix.SERVICE }}-${{ inputs.environment }}
           cluster: ${{ inputs.cluster }}
           wait-for-service-stability: true
+          wait-for-minutes: 10
           force-new-deployment: true
           started-by: GHA-${{ github.actor }}
 
