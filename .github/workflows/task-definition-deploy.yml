@@ -100,7 +100,7 @@ jobs:
       - name: Export short sha to outputs
         id: export-sha
         run: |
-          echo "::set-output name=sha_short::$(git rev-parse --short HEAD)"
+          echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v1.7.0
@@ -113,15 +113,15 @@ jobs:
         id: check-if-built
         run: |
           if [ '${{ inputs.require-image-build }}' == 'true' ]; then
-            echo "::set-output name=image-built::false"
+            echo "image-built=false" >> $GITHUB_OUTPUT
             exit 0
           fi
           image=$(aws ecr list-images --repository-name ${{ inputs.service-name }} --query "imageIds[?imageTag=='${{ steps.export-sha.outputs.sha_short }}'] | [0].imageTag")
           if [[ $image == null ]]; then
-            echo "::set-output name=image-built::false"
+            echo "image-built=false" >> $GITHUB_OUTPUT
           else
             echo "::warning title=Skipping docker build::Image already exists on AWS ECR. Skipping image build."
-            echo "::set-output name=image-built::true"
+            echo "image-built=true" >> $GITHUB_OUTPUT
           fi
 
       - name: Set up Docker Buildx
@@ -186,7 +186,7 @@ jobs:
         env:
           DOMAIN: ${{ inputs.environment == 'prod' && 'suitepad.systems' || 'suitepad.engineering' }}
         run: |
-          echo "::set-output name=url::https://${{ inputs.service-name }}.${{ inputs.environment }}.${{ env.DOMAIN }}/status"
+          echo "url=https://${{ inputs.service-name }}.${{ inputs.environment }}.${{ env.DOMAIN }}/status" >> $GITHUB_OUTPUT
 
       - uses: chrnorm/deployment-action@v2.0.4
         name: Create deployment
@@ -222,7 +222,7 @@ jobs:
           aws s3 cp ${{ env.TASK_DEFINITION_FILE }}/${{ inputs.cluster }}-${{ inputs.service-name }}-${{ inputs.environment }} /tmp/task-definition-template.json
           aws s3 cp ${{ env.TASK_DEFINITION_FILE }}/${{ inputs.cluster }}-${{ inputs.service-name }}-${{ inputs.environment }}-network-config /tmp/network-config.json
           NETWORK_CONFIG=$(cat /tmp/network-config.json)
-          echo "::set-output name=network-config::${NETWORK_CONFIG//'%'/'%25'}"
+          echo "network-config=${NETWORK_CONFIG//'%'/'%25'}" >> $GITHUB_OUTPUT
 
       - name: Render ECS task definition
         id: render-app-container
