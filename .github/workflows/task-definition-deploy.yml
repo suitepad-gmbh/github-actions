@@ -226,7 +226,7 @@ jobs:
 
       - name: Render ECS task definition
         id: render-app-container
-        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        uses: aws-actions/amazon-ecs-render-task-definition@v1.1.2
         with:
           task-definition: /tmp/task-definition-template.json
           container-name: ${{ inputs.container-name }}
@@ -310,7 +310,7 @@ jobs:
       - name: Update deployment status
         uses: chrnorm/deployment-status@v2.0.1
         env:
-          SUCCESS: ${{ needs.deploy-sidecars.result == 'success' || needs.deploy-sidecars.result != 'skipped' || (fromJson(inputs.services).include[0] == null &&  needs.deploy-task-definition.result == 'success') || false }}
+          SUCCESS: ${{ needs.deploy-task-definition.result == 'success' && (needs.deploy-sidecars.result == 'skipped' || needs.deploy-sidecars.result == 'success') }}
         with:
           token: "${{ github.token }}"
           state: ${{ env.SUCCESS == 'true' && 'success' || 'failure' }}
@@ -325,7 +325,12 @@ jobs:
       - name: Report Status
         uses: ravsamhq/notify-slack-action@v2
         env:
-          SUCCESS: ${{ needs.deploy-sidecars.result == 'success' || needs.deploy-sidecars.result != 'skipped' || (fromJson(inputs.services).include[0] == null &&  needs.deploy-task-definition.result == 'success') || false }}
+          # SUCCESS: ${{ needs.deploy-sidecars.result == 'success' || needs.deploy-sidecars.result != 'skipped' || (fromJson(inputs.services).include[0] == null &&  needs.deploy-task-definition.result == 'success') || false }}
+          # if everything succeeds main=success, sidecar!=skipped, sidecar=success
+          # if sidecar fails       main=success, sidecar!=skipped, sidecar=failed
+          # if main fails          main=fail,    sidecar!=skipped, ...
+
+          SUCCESS: ${{ needs.deploy-task-definition.result == 'success' && (needs.deploy-sidecars.result == 'skipped' || needs.deploy-sidecars.result == 'success') }}
           SLACK_WEBHOOK_URL: ${{ inputs.environment == 'prod' && secrets.production-slack-webhook || secrets.staging-slack-webhook }}
         with:
           status: ${{ env.SUCCESS == 'true' && 'success' || 'failure' }}
