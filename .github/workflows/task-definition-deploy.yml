@@ -226,7 +226,7 @@ jobs:
 
       - name: Render ECS task definition
         id: render-app-container
-        uses: aws-actions/amazon-ecs-render-task-definition@v1.1.2
+        uses: aws-actions/amazon-ecs-render-task-definition@v1.1.3
         with:
           task-definition: /tmp/task-definition-template.json
           container-name: ${{ inputs.container-name }}
@@ -279,7 +279,7 @@ jobs:
 
       - name: Render ECS task definition
         id: render-app-container
-        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        uses: aws-actions/amazon-ecs-render-task-definition@v1.1.3
         with:
           task-definition: /tmp/task-definition-template.json
           container-name: ${{ inputs.container-name }}
