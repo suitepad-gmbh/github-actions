@@ -226,21 +226,11 @@ jobs:
           NETWORK_CONFIG=$(cat /tmp/network-config.json)
           echo "network-config=${NETWORK_CONFIG//'%'/'%25'}" >> $GITHUB_OUTPUT
 
-      - name: Render Datadog task definition
-        id: render-datadog-container
-        uses: aws-actions/amazon-ecs-render-task-definition@v1.1.3
-        with:
-          task-definition: /tmp/task-definition-template.json
-          container-name: datadog-agent
-          image: public.ecr.aws/datadog/agent:latest
-          environment-variables: |
-            DD_TAGS=git.commit.sha:${{ github.sha }},git.repository_url:${{ github.server_url }}/${{ github.repository }}
-
       - name: Render app task definition
         id: render-app-container
         uses: aws-actions/amazon-ecs-render-task-definition@v1.1.3
         with:
-          task-definition: ${{ steps.render-datadog-container.outputs.task-definition }}
+          task-definition: /tmp/task-definition-template.json
           container-name: ${{ inputs.container-name }}
           image: ${{ inputs.image-uri }}:${{ needs.docker-build-push.outputs.image-tag }}
 
@@ -289,21 +279,11 @@ jobs:
         run: |
           aws s3 cp ${{ env.TASK_DEFINITION_FILE }}/${{ inputs.cluster }}-${{ matrix.SERVICE }}-${{ inputs.environment }} /tmp/task-definition-template.json
 
-      - name: Render Datadog task definition
-        id: render-datadog-container
-        uses: aws-actions/amazon-ecs-render-task-definition@v1.1.3
-        with:
-          task-definition: /tmp/task-definition-template.json
-          container-name: datadog-agent
-          image: public.ecr.aws/datadog/agent:latest
-          environment-variables: |
-            DD_TAGS=git.commit.sha:${{ github.sha }},git.repository_url:${{ github.server_url }}/${{ github.repository }}
-
       - name: Render app task definition
         id: render-app-container
         uses: aws-actions/amazon-ecs-render-task-definition@v1.1.3
         with:
-          task-definition: ${{ steps.render-datadog-container.outputs.task-definition }}
+          task-definition: /tmp/task-definition-template.json
           container-name: ${{ inputs.container-name }}
           image: ${{ inputs.image-uri }}:${{ needs.docker-build-push.outputs.image-tag }}
 
