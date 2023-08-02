@@ -110,7 +110,23 @@ jobs:
           aws-secret-access-key: ${{ secrets.aws-secret-access-key }}
           aws-region: ${{ inputs.aws-region }}
 
-      - name: Check if already built
+      - name: Login to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Set up Docker Buildx
+        id: buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Add metadata
+        id: metadata
+        uses: docker/metadata-action@v4
+        with:
+          images: ${{ steps.ecr-login.outputs.registry }}/${{ inputs.service-name }}
+          tags: |
+            ${{ steps.export-sha.outputs.sha_short }}
+
+      - name: Check if image already built
         id: check-if-built
         run: |
           if [ '${{ inputs.require-image-build }}' == 'true' ]; then
@@ -125,55 +141,19 @@ jobs:
             echo "image-built=true" >> $GITHUB_OUTPUT
           fi
 
-      - name: Set up Docker Buildx
-        if: ${{ steps.check-if-built.outputs.image-built == 'false' }}
-        id: buildx
-        uses: docker/setup-buildx-action@v2
-        with:
-          install: true
-
-      - name: Cache Docker layers
-        if: ${{ steps.check-if-built.outputs.image-built == 'false' }}
-        uses: actions/cache@v3.3.1
-        with:
-          path: /tmp/.buildx-cache
-          # Key is named differently to avoid collision
-          key: ${{ runner.os }}-multi-buildx-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-multi-buildx
-
-      - name: Build image
+      - name: Build and push image
         if: ${{ steps.check-if-built.outputs.image-built == 'false' }}
         uses: docker/build-push-action@v4
         with:
           context: .
-          builder: ${{ steps.buildx.outputs.name }}
-          load: true
-          push: false
-          tags: |
-            ${{ inputs.image-uri }}:${{ steps.export-sha.outputs.sha_short }}
-          cache-from: type=local,src=/tmp/.buildx-cache
-          # Note the mode=max here
-          # More: https://github.com/moby/buildkit#--export-cache-options
-          # And: https://github.com/docker/buildx#--cache-tonametypetypekeyvalue
-          cache-to: type=local,mode=max,dest=/tmp/.buildx-cache-new
+          push: true
+          tags: ${{ steps.metadata.outputs.tags }}
+          labels: ${{ steps.metadata.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
           build-args: |
             COMMIT_ID=${{ steps.export-sha.outputs.sha_short }}
 
-      - name: Login to Amazon ECR
-        if: ${{ steps.check-if-built.outputs.image-built == 'false' }}
-        uses: aws-actions/amazon-ecr-login@v1
-
-      - name: Push docker image to ECR
-        if: ${{ steps.check-if-built.outputs.image-built == 'false' }}
-        run: |
-          docker push ${{ inputs.image-uri }}:${{ steps.export-sha.outputs.sha_short }}
-
-      - name: Move cache
-        if: ${{ steps.check-if-built.outputs.image-built == 'false' }}
-        run: |
-          rm -rf /tmp/.buildx-cache
-          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
 
   create-deployment:
     name: Create Deployment
