@@ -10,10 +10,6 @@ on:
         required: false
         type: boolean
         default: false
-      # cache-gems:
-      #   required: false
-      #   type: boolean
-      #   default: false
       registry:
         required: true
         type: string
@@ -42,7 +38,7 @@ jobs:
           submodules: "true"
 
       - name: Cache dependencies
-        uses: actions/cache@v3.3.1
+        uses: actions/cache@v3
         if: ${{ inputs.cache-mix }}
         with:
           path: deps
@@ -55,53 +51,38 @@ jobs:
           echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
           echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
 
-      - name: Set up Docker Buildx
-        id: buildx
-        uses: docker/setup-buildx-action@v2
-        with:
-          install: true
-
-      - name: Cache Docker layers
-        uses: actions/cache@v3.3.1
-        with:
-          path: /tmp/.buildx-cache
-          # Key is named differently to avoid collision
-          key: ${{ runner.os }}-multi-buildx-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-multi-buildx
-
-      - name: Build image
-        uses: docker/build-push-action@v4
-        with:
-          context: .
-          builder: ${{ steps.buildx.outputs.name }}
-          load: true
-          push: false
-          tags: |
-            ${{ inputs.registry }}/${{ inputs.image }}:${{ steps.export-sha.outputs.sha_short }}
-          cache-from: type=local,src=/tmp/.buildx-cache
-          # Note the mode=max here
-          # More: https://github.com/moby/buildkit#--export-cache-options
-          # And: https://github.com/docker/buildx#--cache-tonametypetypekeyvalue
-          cache-to: type=local,mode=max,dest=/tmp/.buildx-cache-new
-          build-args: |
-            COMMIT_ID=${{ steps.export-sha.outputs.sha_short }}
-
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v1.7.0
+        uses: aws-actions/configure-aws-credentials@v2
         with:
           aws-access-key-id: ${{ secrets.aws-access-key-id }}
           aws-secret-access-key: ${{ secrets.aws-secret-access-key }}
           aws-region: ${{ inputs.aws-region }}
 
       - name: Login to Amazon ECR
+        id: ecr-login
         uses: aws-actions/amazon-ecr-login@v1
 
-      - name: Push docker image to ECR
-        run: |
-          docker push ${{ inputs.registry }}/${{ inputs.image }}:${{ steps.export-sha.outputs.sha_short }}
+      - name: Set up Docker Buildx
+        id: buildx
+        uses: docker/setup-buildx-action@v2
 
-      - name: Move cache
-        run: |
-          rm -rf /tmp/.buildx-cache
-          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+      - name: Add metadata
+        id: metadata
+        uses: docker/metadata-action@v4
+        with:
+          images: ${{ steps.ecr-login.outputs.registry }}/${{ inputs.image }}
+          tags: |
+            ${{ steps.export-sha.outputs.sha_short }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.metadata.outputs.tags }}
+          labels: ${{ steps.metadata.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            COMMIT_ID=${{ steps.export-sha.outputs.sha_short }}
+
