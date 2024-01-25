@@ -172,7 +172,7 @@ jobs:
         run: |
           echo "url=https://${{ inputs.service-name }}.${{ inputs.environment }}.${{ env.DOMAIN }}/status" >> $GITHUB_OUTPUT
 
-      - uses: chrnorm/deployment-action@v2.0.5
+      - uses: chrnorm/deployment-action@v2
         name: Create deployment
         id: create-deployment
         with:
@@ -292,7 +292,7 @@ jobs:
     needs: [create-deployment, deploy-task-definition, deploy-sidecars]
     steps:
       - name: Update deployment status
-        uses: chrnorm/deployment-status@v2.0.1
+        uses: chrnorm/deployment-status@v2
         env:
           SUCCESS: ${{ needs.deploy-task-definition.result == 'success' && (needs.deploy-sidecars.result == 'skipped' || needs.deploy-sidecars.result == 'success') }}
         with:
