@@ -233,6 +233,8 @@ jobs:
           init-task-command: ${{ inputs.skip-init-task != 'true' && inputs.init-task-command || '' }}
           init-task-network-configuration: ${{ steps.fetch-task-definition.outputs.network-config }}
           started-by: GHA-${{ github.actor }}
+        env:
+          AWS_SDK_JS_SUPPRESS_MAINTENANCE_MODE_MESSAGE: 1
 
   deploy-sidecars:
     name: Deploy supporting services
@@ -284,6 +286,8 @@ jobs:
           wait-for-minutes: 10
           force-new-deployment: true
           started-by: GHA-${{ github.actor }}
+        env:
+          AWS_SDK_JS_SUPPRESS_MAINTENANCE_MODE_MESSAGE: 1
 
   update-deployment-status:
     runs-on: ubuntu-latest
