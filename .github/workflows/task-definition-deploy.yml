@@ -244,7 +244,7 @@ jobs:
     if: ${{ fromJson(inputs.services).include[0] }}
     concurrency: deploy-sidecar-${{ matrix.SERVICE }}
     strategy:
-      fail-fast: true
+      fail-fast: false
       matrix: ${{ fromJson(inputs.services) }}
     steps:
       - name: Configure AWS credentials
