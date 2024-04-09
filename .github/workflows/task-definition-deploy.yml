@@ -156,9 +156,8 @@ jobs:
           build-args: |
             COMMIT_ID=${{ steps.export-sha.outputs.sha_short }}
 
-
   create-deployment:
-    name: Create Deployment
+    name: 'Create Deployment env: ${{ inputs.environment }}'
     runs-on: ubuntu-latest
     needs: [docker-build-push]
     outputs:
