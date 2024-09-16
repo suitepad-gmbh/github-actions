@@ -1,3 +1,7 @@
+env:
+  RUNS_ON_S3_BUCKET_CACHE: github-runner-cache-20240808144417347400000001
+  AWS_REGION: eu-central-1
+
 name: Build docker image and push to ECR
 
 on:
@@ -29,7 +33,7 @@ on:
 jobs:
   docker_build_push:
     name: Build docker image and push to ECR
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, ubuntu-24.04, 2-cores]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -38,7 +42,7 @@ jobs:
           submodules: "true"
 
       - name: Cache dependencies
-        uses: actions/cache@v4
+        uses: runs-on/cache@v4
         if: ${{ inputs.cache-mix }}
         with:
           path: deps
@@ -62,7 +66,7 @@ jobs:
         id: ecr-login
         uses: aws-actions/amazon-ecr-login@v2
         with:
-          mask-password: 'true'
+          mask-password: "true"
 
       - name: Set up Docker Buildx
         id: buildx
@@ -87,4 +91,3 @@ jobs:
           cache-to: type=gha,mode=max
           build-args: |
             COMMIT_ID=${{ steps.export-sha.outputs.sha_short }}
-
