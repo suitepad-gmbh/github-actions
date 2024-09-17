@@ -41,14 +41,6 @@ jobs:
           token: ${{ secrets.pat-github }}
           submodules: "true"
 
-      - name: Cache dependencies
-        uses: runs-on/cache@v4
-        if: ${{ inputs.cache-mix }}
-        with:
-          path: deps
-          key: ${{ runner.os }}-mix-deps-${{ hashFiles('**/mix.lock') }}
-          restore-keys: ${{ runner.os }}-mix-
-
       - name: Export short sha to outputs
         id: export-sha
         run: |
