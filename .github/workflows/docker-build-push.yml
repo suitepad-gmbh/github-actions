@@ -79,7 +79,7 @@ jobs:
           push: true
           tags: ${{ steps.metadata.outputs.tags }}
           labels: ${{ steps.metadata.outputs.labels }}
-          cache-from: type=s3,blobs_prefix=cache/${{ github.repository }}/,manifests_prefix=cache/${{ github.repository }}/,region=${{ env.AWS_REGION }},bucket=${{ env.RUNS_ON_S3_BUCKET_CACHE }}
-          cache-to: type=s3,blobs_prefix=cache/${{ github.repository }}/,manifests_prefix=cache/${{ github.repository }}/,region=${{ env.AWS_REGION }},bucket=${{ env.RUNS_ON_S3_BUCKET_CACHE }},mode=max
+          cache-to: mode=max,image-manifest=true,oci-mediatypes=true,type=registry,ref=${{ steps.ecr-login.outputs.registry }}/${{ inputs.image }}:cache
+          cache-from: type=registry,ref=${{ steps.ecr-login.outputs.registry }}/${{ inputs.image }}:cache
           build-args: |
             COMMIT_ID=${{ steps.export-sha.outputs.sha_short }}
