@@ -59,7 +59,8 @@ on:
       init-task-command:
         type: string
         required: false
-        description: 'Init task command. Example: "rails db:migrate"'
+        description: 'Init task command as a JSON list. Example: ["rails", "db:migrate"]'
+        default: '[]'
 
     secrets:
       pat-github:
@@ -89,6 +90,8 @@ jobs:
   docker-build-push:
     name: Build docker image and push to ECR
     runs-on: [self-hosted, ubuntu-24.04, 2-cores]
+    env:
+      COMPOSE_BAKE: true
     outputs:
       image-tag: ${{ steps.export-sha.outputs.sha_short }}
     steps:
@@ -210,7 +213,9 @@ jobs:
           aws s3 cp ${{ env.TASK_DEFINITION_FILE }}/${{ inputs.cluster }}-${{ inputs.service-name }}-${{ inputs.environment }} /tmp/task-definition-template.json
           aws s3 cp ${{ env.TASK_DEFINITION_FILE }}/${{ inputs.cluster }}-${{ inputs.service-name }}-${{ inputs.environment }}-network-config /tmp/network-config.json
           NETWORK_CONFIG=$(cat /tmp/network-config.json)
-          echo "network-config=${NETWORK_CONFIG//'%'/'%25'}" >> $GITHUB_OUTPUT
+          echo "network_config=${NETWORK_CONFIG//'%'/'%25'}" >> $GITHUB_OUTPUT
+          echo "security_groups=$(cat /tmp/network-config.json | jq -r '.awsvpcConfiguration.securityGroups | join(",")')" >> $GITHUB_OUTPUT
+          echo "subnets=$(cat /tmp/network-config.json | jq -r '.awsvpcConfiguration.subnets | join(",")')" >> $GITHUB_OUTPUT
 
       - name: Render app task definition
         id: render-app-container
@@ -226,7 +231,7 @@ jobs:
           cat ${{ steps.render-app-container.outputs.task-definition }}
 
       - name: Deploy to Amazon ECS service
-        uses: chiragrajk/amazon-ecs-deploy-task-definition@feature/enable-init-tasks
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
         with:
           task-definition: ${{ steps.render-app-container.outputs.task-definition }}
           service: ${{ inputs.service-name }}-${{ inputs.environment }}
@@ -234,11 +239,14 @@ jobs:
           wait-for-service-stability: true
           wait-for-minutes: 10
           force-new-deployment: true
-          init-task-command: ${{ inputs.skip-init-task != 'true' && inputs.init-task-command || '' }}
-          init-task-network-configuration: ${{ steps.fetch-task-definition.outputs.network-config }}
-          started-by: GHA-${{ github.actor }}
-        env:
-          AWS_SDK_JS_SUPPRESS_MAINTENANCE_MODE_MESSAGE: 1
+          propagate-tags: 'TASK_DEFINITION'
+
+          run-task: ${{ inputs.skip-init-task != 'true' }}
+          run-task-container-overrides: '[{"name": "app", "command": ${{ inputs.init-task-command }} }]'
+          run-task-security-groups: ${{ steps.fetch-task-definition.outputs.security_groups }}
+          run-task-subnets: ${{ steps.fetch-task-definition.outputs.subnets }}
+          run-task-started-by: GHA-${{ github.actor }}
+          wait-for-task-stopped: true
 
   deploy-sidecars:
     name: Deploy supporting services
@@ -281,7 +289,7 @@ jobs:
           cat ${{ steps.render-app-container.outputs.task-definition }}
 
       - name: Deploy to Amazon ECS service
-        uses: chiragrajk/amazon-ecs-deploy-task-definition@feature/enable-init-tasks
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
         with:
           task-definition: ${{ steps.render-app-container.outputs.task-definition }}
           service: ${{ matrix.SERVICE }}-${{ inputs.environment }}
@@ -289,9 +297,7 @@ jobs:
           wait-for-service-stability: true
           wait-for-minutes: 10
           force-new-deployment: true
-          started-by: GHA-${{ github.actor }}
-        env:
-          AWS_SDK_JS_SUPPRESS_MAINTENANCE_MODE_MESSAGE: 1
+          propagate-tags: 'TASK_DEFINITION'
 
   update-deployment-status:
     runs-on: ubuntu-latest
