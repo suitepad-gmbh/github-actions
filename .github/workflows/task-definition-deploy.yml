@@ -49,7 +49,7 @@ on:
       skip-init-task:
         type: string
         required: false
-        default: "false"
+        default: "true"
         description: Set true to skip init task.
       require-image-build:
         type: string
