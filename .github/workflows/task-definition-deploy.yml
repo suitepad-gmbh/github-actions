@@ -96,7 +96,7 @@ jobs:
       image-tag: ${{ steps.export-sha.outputs.sha_short }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ inputs.image-tag || github.sha }}
           token: ${{ secrets.pat-github }}
