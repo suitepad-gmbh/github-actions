@@ -60,7 +60,7 @@ on:
         type: string
         required: false
         description: 'Init task command as a JSON list. Example: ["rails", "db:migrate"]'
-        default: '[]'
+        default: "[]"
 
     secrets:
       pat-github:
@@ -158,11 +158,12 @@ jobs:
           push: true
           tags: ${{ steps.metadata.outputs.tags }}
           labels: ${{ steps.metadata.outputs.labels }}
-
-          cache-to: mode=max,type=registry,ref=${{ inputs.image-uri }}:cache,compression=zstd,force-compression=true
+          cache-to: mode=max,type=registry,ref=${{ inputs.image-uri }}:cache,oci-mediatypes=true,compression=zstd
           cache-from: type=registry,ref=${{ inputs.image-uri }}:cache
           build-args: |
             COMMIT_ID=${{ steps.export-sha.outputs.sha_short }}
+        env:
+          DOCKER_BUILD_RECORD_UPLOAD: false
 
   create-deployment:
     name: "Create Deployment env: ${{ inputs.environment }}"
@@ -239,7 +240,7 @@ jobs:
           wait-for-service-stability: true
           wait-for-minutes: 10
           force-new-deployment: true
-          propagate-tags: 'TASK_DEFINITION'
+          propagate-tags: "TASK_DEFINITION"
 
           run-task: ${{ inputs.skip-init-task != 'true' }}
           run-task-container-overrides: '[{"name": "app", "command": ${{ inputs.init-task-command }} }]'
@@ -297,7 +298,7 @@ jobs:
           wait-for-service-stability: true
           wait-for-minutes: 10
           force-new-deployment: true
-          propagate-tags: 'TASK_DEFINITION'
+          propagate-tags: "TASK_DEFINITION"
 
   update-deployment-status:
     runs-on: ubuntu-latest

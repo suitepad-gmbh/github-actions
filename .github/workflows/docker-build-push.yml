@@ -81,7 +81,9 @@ jobs:
           push: true
           tags: ${{ steps.metadata.outputs.tags }}
           labels: ${{ steps.metadata.outputs.labels }}
-          cache-to: mode=max,type=registry,ref=${{ steps.ecr-login.outputs.registry }}/${{ inputs.image }}:cache,compression=zstd,force-compression=true
+          cache-to: mode=max,type=registry,ref=${{ steps.ecr-login.outputs.registry }}/${{ inputs.image }}:cache,oci-mediatypes=true,compression=zstd
           cache-from: type=registry,ref=${{ steps.ecr-login.outputs.registry }}/${{ inputs.image }}:cache
           build-args: |
             COMMIT_ID=${{ steps.export-sha.outputs.sha_short }}
+        env:
+          DOCKER_BUILD_RECORD_UPLOAD: false
