@@ -68,7 +68,7 @@ jobs:
 
       - name: Add metadata
         id: metadata
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ steps.ecr-login.outputs.registry }}/${{ inputs.image }}
           tags: |
