@@ -320,23 +320,42 @@ jobs:
     runs-on: ubuntu-latest
     if: ${{ always() }}
     needs: [create-deployment, deploy-task-definition, deploy-sidecars]
+    env:
+      SUCCESS: ${{ needs.deploy-task-definition.result == 'success' && (needs.deploy-sidecars.result == 'skipped' || needs.deploy-sidecars.result == 'success') }}
+      SLACK_WEBHOOK_URL: ${{ inputs.environment == 'prod' && secrets.production-slack-webhook || secrets.staging-slack-webhook }}
     steps:
-      - name: Report Status
-        uses: ravsamhq/notify-slack-action@v2
-        env:
-          # SUCCESS: ${{ needs.deploy-sidecars.result == 'success' || needs.deploy-sidecars.result != 'skipped' || (fromJson(inputs.services).include[0] == null &&  needs.deploy-task-definition.result == 'success') || false }}
-          # if everything succeeds main=success, sidecar!=skipped, sidecar=success
-          # if sidecar fails       main=success, sidecar!=skipped, sidecar=failed
-          # if main fails          main=fail,    sidecar!=skipped, ...
+      - name: Notify Slack on success
+        if: ${{ env.SUCCESS == 'true' }}
+        run: |
+          curl -sf -X POST -H 'Content-type: application/json' \
+            --data @- "$SLACK_WEBHOOK_URL" <<EOF
+          {
+            "text": "[${{ inputs.environment }}] ${{ github.workflow }} succeeded",
+            "attachments": [
+              {
+                "color": "#2EB886",
+                "mrkdwn_in": ["text"],
+                "text": ":white_check_mark: *[${{ inputs.environment }}] ${{ github.workflow }}* succeeded in <${{ github.server_url }}/${{ github.repository }}|${{ github.repository }}>",
+                "footer": "Linked Repo <${{ github.server_url }}/${{ github.repository }}|${{ github.repository }}> | <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Workflow Run> | <${{ needs.create-deployment.outputs.target_url }}|Check Service Status>"
+              }
+            ]
+          }
+          EOF
 
-          SUCCESS: ${{ needs.deploy-task-definition.result == 'success' && (needs.deploy-sidecars.result == 'skipped' || needs.deploy-sidecars.result == 'success') }}
-          SLACK_WEBHOOK_URL: ${{ inputs.environment == 'prod' && secrets.production-slack-webhook || secrets.staging-slack-webhook }}
-        with:
-          status: ${{ env.SUCCESS == 'true' && 'success' || 'failure' }}
-          token: ${{ github.token }}
-          notification_title: "[${{ inputs.environment }}] {workflow} has {status_message}"
-          message_format: "{emoji} *[${{ inputs.environment }}] {workflow}* {status_message} in <{repo_url}|{repo}>"
-          footer: "Linked Repo <{repo_url}|{repo}> | <{run_url}|View Workflow Run> | <${{ needs.create-deployment.outputs.target_url }}|Check Service Status>"
-          notify_when: "success,failure,warnings"
-          mention_groups: "S022DRPB353"
-          mention_groups_when: "failure,warnings"
+      - name: Notify Slack on failure
+        if: ${{ env.SUCCESS != 'true' }}
+        run: |
+          curl -sf -X POST -H 'Content-type: application/json' \
+            --data @- "$SLACK_WEBHOOK_URL" <<EOF
+          {
+            "text": "[${{ inputs.environment }}] ${{ github.workflow }} failed",
+            "attachments": [
+              {
+                "color": "#D40E0D",
+                "mrkdwn_in": ["text"],
+                "text": ":x: *[${{ inputs.environment }}] ${{ github.workflow }}* failed in <${{ github.server_url }}/${{ github.repository }}|${{ github.repository }}>\n<!subteam^S022DRPB353>",
+                "footer": "Linked Repo <${{ github.server_url }}/${{ github.repository }}|${{ github.repository }}> | <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Workflow Run> | <${{ needs.create-deployment.outputs.target_url }}|Check Service Status>"
+              }
+            ]
+          }
+          EOF
