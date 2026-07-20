@@ -89,7 +89,7 @@ on:
 jobs:
   docker-build-push:
     name: Build docker image and push to ECR
-    runs-on: [self-hosted, ubuntu-24.04, 2-cores]
+    runs-on: [self-hosted, ubuntu-24.04, 4-cores]
     env:
       COMPOSE_BAKE: true
     outputs:
@@ -167,7 +167,7 @@ jobs:
 
   create-deployment:
     name: "Create Deployment env: ${{ inputs.environment }}"
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, ubuntu-24.04-arm, 2-cores]
     needs: [docker-build-push]
     outputs:
       deployment_id: ${{ steps.create-deployment.outputs.deployment_id }}
@@ -193,7 +193,7 @@ jobs:
 
   deploy-task-definition:
     name: Deploy main service and run init task
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, ubuntu-24.04-arm, 2-cores]
     needs: [create-deployment, docker-build-push]
     steps:
       - name: Configure AWS credentials
@@ -251,7 +251,7 @@ jobs:
 
   deploy-sidecars:
     name: Deploy supporting services
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, ubuntu-24.04-arm, 2-cores]
     needs: [docker-build-push, deploy-task-definition]
 
     if: ${{ fromJson(inputs.services).include[0] }}
@@ -301,7 +301,7 @@ jobs:
           propagate-tags: "TASK_DEFINITION"
 
   update-deployment-status:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, ubuntu-24.04-arm, 2-cores]
     name: Update deployment status
     if: ${{ always() }}
     needs: [create-deployment, deploy-task-definition, deploy-sidecars]
@@ -317,7 +317,7 @@ jobs:
 
   notify-slack:
     name: Notify deploy status on Slack
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, ubuntu-24.04-arm, 2-cores]
     if: ${{ always() }}
     needs: [create-deployment, deploy-task-definition, deploy-sidecars]
     env:
