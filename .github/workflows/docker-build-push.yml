@@ -33,22 +33,22 @@ on:
         type: string
         default: "true"
         description: Set true to build the image even when the tag already exists on ECR.
-      runner:
+      architectures:
         required: false
         type: string
-        default: '["self-hosted", "ubuntu-24.04", "2-cores"]'
-        description: JSON list of runner labels to run the build on.
+        default: '["amd64", "arm64"]'
+        description: JSON list of architectures to build. Supported values are amd64 and arm64. Each architecture is built natively on its own runner.
 
     outputs:
       image-tag:
         description: The short SHA the image was tagged with.
-        value: ${{ jobs.docker_build_push.outputs.image-tag }}
+        value: ${{ jobs.check.outputs.image-tag }}
       image-sha:
         description: The full SHA of the built commit.
-        value: ${{ jobs.docker_build_push.outputs.image-sha }}
+        value: ${{ jobs.check.outputs.image-sha }}
       build-skipped:
         description: "true when the image already existed on ECR and the build was skipped."
-        value: ${{ jobs.docker_build_push.outputs.build-skipped }}
+        value: ${{ jobs.check.outputs.build-skipped }}
 
     secrets:
       aws-access-key-id:
@@ -59,11 +59,9 @@ on:
         required: true
 
 jobs:
-  docker_build_push:
-    name: Build docker image and push to ECR
-    runs-on: ${{ fromJSON(inputs.runner) }}
-    env:
-      COMPOSE_BAKE: true
+  check:
+    name: Resolve SHA and check if image already built
+    runs-on: ubuntu-latest
     outputs:
       image-tag: ${{ steps.export-sha.outputs.sha_short }}
       image-sha: ${{ steps.export-sha.outputs.sha }}
@@ -74,13 +72,53 @@ jobs:
         with:
           ref: ${{ inputs.ref }}
           token: ${{ secrets.pat-github }}
-          submodules: "true"
 
       - name: Export short sha to outputs
         id: export-sha
         run: |
           echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
           echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-access-key-id: ${{ secrets.aws-access-key-id }}
+          aws-secret-access-key: ${{ secrets.aws-secret-access-key }}
+          aws-region: ${{ inputs.aws-region }}
+
+      - name: Check if image already built
+        id: check-if-built
+        run: |
+          if [ '${{ inputs.require-image-build }}' == 'true' ]; then
+            echo "build-skipped=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          image=$(aws ecr list-images --repository-name ${{ inputs.image }} --query "imageIds[?imageTag=='${{ steps.export-sha.outputs.sha_short }}'] | [0].imageTag" || echo null)
+          if [[ $image == null ]]; then
+            echo "build-skipped=false" >> $GITHUB_OUTPUT
+          else
+            echo "::warning title=Skipping docker build::Image already exists on AWS ECR. Skipping image build."
+            echo "build-skipped=true" >> $GITHUB_OUTPUT
+          fi
+
+  build:
+    name: Build linux/${{ matrix.arch }} image
+    needs: [check]
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: ${{ fromJSON(inputs.architectures) }}
+    if: ${{ needs.check.outputs.build-skipped == 'false' }}
+    runs-on: ${{ matrix.arch == 'arm64' && fromJSON('["self-hosted", "ubuntu-24.04-arm", "4-cores"]') || fromJSON('["self-hosted", "ubuntu-24.04", "4-cores"]') }}
+    env:
+      COMPOSE_BAKE: true
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+          token: ${{ secrets.pat-github }}
+          submodules: "true"
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
@@ -105,34 +143,77 @@ jobs:
         with:
           images: ${{ steps.ecr-login.outputs.registry }}/${{ inputs.image }}
           tags: |
-            ${{ steps.export-sha.outputs.sha_short }}
+            ${{ needs.check.outputs.image-tag }}
 
-      - name: Check if image already built
-        id: check-if-built
-        run: |
-          if [ '${{ inputs.require-image-build }}' == 'true' ]; then
-            echo "build-skipped=false" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-          image=$(aws ecr list-images --repository-name ${{ inputs.image }} --query "imageIds[?imageTag=='${{ steps.export-sha.outputs.sha_short }}'] | [0].imageTag" || echo null)
-          if [[ $image == null ]]; then
-            echo "build-skipped=false" >> $GITHUB_OUTPUT
-          else
-            echo "::warning title=Skipping docker build::Image already exists on AWS ECR. Skipping image build."
-            echo "build-skipped=true" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Build and push image
-        if: ${{ steps.check-if-built.outputs.build-skipped == 'false' }}
+      - name: Build and push image by digest
+        id: build
         uses: docker/build-push-action@v7
         with:
           context: .
-          push: true
-          tags: ${{ steps.metadata.outputs.tags }}
+          platforms: linux/${{ matrix.arch }}
           labels: ${{ steps.metadata.outputs.labels }}
-          cache-to: mode=max,type=registry,ref=${{ steps.ecr-login.outputs.registry }}/${{ inputs.image }}:cache,oci-mediatypes=true,compression=zstd
-          cache-from: type=registry,ref=${{ steps.ecr-login.outputs.registry }}/${{ inputs.image }}:cache
+          outputs: type=image,name=${{ steps.ecr-login.outputs.registry }}/${{ inputs.image }},push-by-digest=true,name-canonical=true,push=true
+          cache-to: mode=max,type=registry,ref=${{ steps.ecr-login.outputs.registry }}/${{ inputs.image }}:cache-${{ matrix.arch }},oci-mediatypes=true,compression=zstd
+          cache-from: type=registry,ref=${{ steps.ecr-login.outputs.registry }}/${{ inputs.image }}:cache-${{ matrix.arch }}
           build-args: |
-            COMMIT_ID=${{ steps.export-sha.outputs.sha_short }}
+            COMMIT_ID=${{ needs.check.outputs.image-tag }}
         env:
           DOCKER_BUILD_RECORD_UPLOAD: false
+
+      - name: Export digest
+        run: |
+          mkdir -p ${{ runner.temp }}/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "${{ runner.temp }}/digests/${digest#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v7
+        with:
+          name: digests-${{ inputs.image }}-${{ matrix.arch }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    name: Merge digests into a manifest list
+    needs: [check, build]
+    if: ${{ needs.check.outputs.build-skipped == 'false' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@v8
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digests-${{ inputs.image }}-*
+          merge-multiple: true
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-access-key-id: ${{ secrets.aws-access-key-id }}
+          aws-secret-access-key: ${{ secrets.aws-secret-access-key }}
+          aws-region: ${{ inputs.aws-region }}
+
+      - name: Login to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+        with:
+          mask-password: "true"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Create manifest list and push
+        working-directory: ${{ runner.temp }}/digests
+        env:
+          IMAGE: ${{ steps.ecr-login.outputs.registry }}/${{ inputs.image }}
+          TAG: ${{ needs.check.outputs.image-tag }}
+        run: |
+          docker buildx imagetools create -t "$IMAGE:$TAG" \
+            $(printf "$IMAGE@sha256:%s " *)
+
+      - name: Inspect image
+        env:
+          IMAGE: ${{ steps.ecr-login.outputs.registry }}/${{ inputs.image }}
+          TAG: ${{ needs.check.outputs.image-tag }}
+        run: docker buildx imagetools inspect "$IMAGE:$TAG"
