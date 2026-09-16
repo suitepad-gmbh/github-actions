@@ -46,9 +46,9 @@ on:
       image-sha:
         description: The full SHA of the built commit.
         value: ${{ jobs.docker_build_push.outputs.image-sha }}
-      image-built:
+      build-skipped:
         description: "true when the image already existed on ECR and the build was skipped."
-        value: ${{ jobs.docker_build_push.outputs.image-built }}
+        value: ${{ jobs.docker_build_push.outputs.build-skipped }}
 
     secrets:
       aws-access-key-id:
@@ -67,7 +67,7 @@ jobs:
     outputs:
       image-tag: ${{ steps.export-sha.outputs.sha_short }}
       image-sha: ${{ steps.export-sha.outputs.sha }}
-      image-built: ${{ steps.check-if-built.outputs.image-built }}
+      build-skipped: ${{ steps.check-if-built.outputs.build-skipped }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -111,19 +111,19 @@ jobs:
         id: check-if-built
         run: |
           if [ '${{ inputs.require-image-build }}' == 'true' ]; then
-            echo "image-built=false" >> $GITHUB_OUTPUT
+            echo "build-skipped=false" >> $GITHUB_OUTPUT
             exit 0
           fi
           image=$(aws ecr list-images --repository-name ${{ inputs.image }} --query "imageIds[?imageTag=='${{ steps.export-sha.outputs.sha_short }}'] | [0].imageTag" || echo null)
           if [[ $image == null ]]; then
-            echo "image-built=false" >> $GITHUB_OUTPUT
+            echo "build-skipped=false" >> $GITHUB_OUTPUT
           else
             echo "::warning title=Skipping docker build::Image already exists on AWS ECR. Skipping image build."
-            echo "image-built=true" >> $GITHUB_OUTPUT
+            echo "build-skipped=true" >> $GITHUB_OUTPUT
           fi
 
       - name: Build and push image
-        if: ${{ steps.check-if-built.outputs.image-built == 'false' }}
+        if: ${{ steps.check-if-built.outputs.build-skipped == 'false' }}
         uses: docker/build-push-action@v7
         with:
           context: .
