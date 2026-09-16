@@ -10,17 +10,45 @@ on:
       image:
         required: true
         type: string
+        description: The ECR repository name of the image to build.
       cache-mix:
         required: false
         type: boolean
         default: false
+        description: Deprecated.
       registry:
-        required: true
+        required: false
         type: string
+        description: Deprecated. The registry is resolved from the ECR login.
       aws-region:
         required: true
         type: string
         default: eu-central-1
+      ref:
+        required: false
+        type: string
+        description: The git ref to check out and build. Defaults to the ref of the triggering event.
+      require-image-build:
+        required: false
+        type: string
+        default: "true"
+        description: Set true to build the image even when the tag already exists on ECR.
+      runner:
+        required: false
+        type: string
+        default: '["self-hosted", "ubuntu-24.04", "2-cores"]'
+        description: JSON list of runner labels to run the build on.
+
+    outputs:
+      image-tag:
+        description: The short SHA the image was tagged with.
+        value: ${{ jobs.docker_build_push.outputs.image-tag }}
+      image-sha:
+        description: The full SHA of the built commit.
+        value: ${{ jobs.docker_build_push.outputs.image-sha }}
+      image-built:
+        description: "true when the image already existed on ECR and the build was skipped."
+        value: ${{ jobs.docker_build_push.outputs.image-built }}
 
     secrets:
       aws-access-key-id:
@@ -33,13 +61,18 @@ on:
 jobs:
   docker_build_push:
     name: Build docker image and push to ECR
-    runs-on: [self-hosted, ubuntu-24.04, 2-cores]
+    runs-on: ${{ fromJSON(inputs.runner) }}
     env:
       COMPOSE_BAKE: true
+    outputs:
+      image-tag: ${{ steps.export-sha.outputs.sha_short }}
+      image-sha: ${{ steps.export-sha.outputs.sha }}
+      image-built: ${{ steps.check-if-built.outputs.image-built }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
+          ref: ${{ inputs.ref }}
           token: ${{ secrets.pat-github }}
           submodules: "true"
 
@@ -74,7 +107,23 @@ jobs:
           tags: |
             ${{ steps.export-sha.outputs.sha_short }}
 
+      - name: Check if image already built
+        id: check-if-built
+        run: |
+          if [ '${{ inputs.require-image-build }}' == 'true' ]; then
+            echo "image-built=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          image=$(aws ecr list-images --repository-name ${{ inputs.image }} --query "imageIds[?imageTag=='${{ steps.export-sha.outputs.sha_short }}'] | [0].imageTag" || echo null)
+          if [[ $image == null ]]; then
+            echo "image-built=false" >> $GITHUB_OUTPUT
+          else
+            echo "::warning title=Skipping docker build::Image already exists on AWS ECR. Skipping image build."
+            echo "image-built=true" >> $GITHUB_OUTPUT
+          fi
+
       - name: Build and push image
+        if: ${{ steps.check-if-built.outputs.image-built == 'false' }}
         uses: docker/build-push-action@v7
         with:
           context: .
