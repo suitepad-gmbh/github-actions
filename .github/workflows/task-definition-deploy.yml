@@ -56,6 +56,11 @@ on:
         required: false
         default: "false"
         description: Set true to build docker image.
+      architectures:
+        type: string
+        required: false
+        default: '["amd64", "arm64"]'
+        description: JSON list of architectures to build the image for. Supported values are amd64 and arm64.
       init-task-command:
         type: string
         required: false
@@ -95,7 +100,7 @@ jobs:
       aws-region: ${{ inputs.aws-region }}
       ref: ${{ inputs.image-tag || github.sha }}
       require-image-build: ${{ inputs.require-image-build }}
-      runner: '["self-hosted", "ubuntu-24.04", "4-cores"]'
+      architectures: ${{ inputs.architectures }}
     secrets:
       aws-access-key-id: ${{ secrets.aws-access-key-id }}
       aws-secret-access-key: ${{ secrets.aws-secret-access-key }}
