@@ -110,6 +110,9 @@ jobs:
     name: "Create Deployment env: ${{ inputs.environment }}"
     runs-on: [self-hosted, ubuntu-24.04-arm, 2-cores]
     needs: [docker-build-push]
+    permissions:
+      contents: read
+      deployments: write
     outputs:
       deployment_id: ${{ steps.create-deployment.outputs.deployment_id }}
       target_url: ${{ steps.export-status-url.outputs.url }}
@@ -246,8 +249,11 @@ jobs:
   update-deployment-status:
     runs-on: [self-hosted, ubuntu-24.04-arm, 2-cores]
     name: Update deployment status
-    if: ${{ always() }}
+    if: ${{ always() && needs.create-deployment.result == 'success' }}
     needs: [create-deployment, deploy-task-definition, deploy-sidecars]
+    permissions:
+      contents: read
+      deployments: write
     steps:
       - name: Update deployment status
         uses: chrnorm/deployment-status@v2
